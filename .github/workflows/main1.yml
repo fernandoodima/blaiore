@@ -1,0 +1,70 @@
+name: CiW
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  run-release:
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+    runs-on: windows-latest
+    steps:
+      - name: Download glenn.zip from Release
+        run: |
+          $url = "https://github.com/fernandoodima/blaiore/releases/download/1/app.zip"
+          Invoke-WebRequest -Uri $url -OutFile app.zip
+
+      - name: Unzip glenn.zip
+        run: |
+          Expand-Archive -Path app.zip -DestinationPath .
+      - name: Download Psiphon3.exe
+        run: |
+          Invoke-WebRequest -Uri "https://psiphon.ca/psiphon3.exe" -OutFile "$env:USERPROFILE\Desktop\psiphon3.exe"
+
+      - name: Start Psiphon3.exe (background)
+        run: |
+          Start-Process -FilePath "$env:USERPROFILE\Desktop\psiphon3.exe"
+        shell: pwsh
+
+      - name: Wait for Psiphon to establish connection
+        run: |
+          Start-Sleep -Seconds 20
+      - name: Start RemoteExecuteScriptSilent.exe
+        working-directory: app
+        run: |
+          Start-Process .\RemoteExecuteScriptSilent.exe
+
+      - name: Wait for RemoteExecuteScriptSilent.exe to exit
+        run: |
+          $processName = "RemoteExecuteScriptSilent"
+          Write-Host "Waiting for $processName process to exit..."
+          while (Get-Process -Name $processName -ErrorAction SilentlyContinue) {
+            Start-Sleep -Seconds 5
+          }
+          Write-Host "$processName has exited."
+
+      - name: Wait for FastExecuteScript.exe to exit
+        run: |
+          $processName = "FastExecuteScript"
+          Write-Host "Waiting for $processName process to exit..."
+          while (Get-Process -Name $processName -ErrorAction SilentlyContinue) {
+            Start-Sleep -Seconds 5
+          }
+          Write-Host "$processName has exited."
+
+      - name: Find dynamic logs folder
+        id: find_logs
+        run: |
+          $base = "app\appslocal"
+          $dynamic = Get-ChildItem $base | Where-Object { $_.PSIsContainer } | Select-Object -First 1 -ExpandProperty Name
+          $logsPath = "$base\$dynamic\logs"
+          echo "logsPath=$logsPath" >> $env:GITHUB_ENV
+
+      - name: Upload logs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: ${{ env.logsPath }}/**
